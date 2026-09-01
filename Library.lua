@@ -1018,6 +1018,7 @@ do
             ChangedCallback = Info.ChangedCallback or function(New) end;
 
             SyncToggleState = Info.SyncToggleState or false;
+            Picking = false;
         };
 
         if KeyPicker.SyncToggleState then
@@ -1055,6 +1056,16 @@ do
             ZIndex = 8;
             Parent = PickInner;
         });
+
+        local function RefreshBoxVisibility()
+            if Info.AutoHideBox then
+                PickOuter.Visible = KeyPicker.Picking or (KeyPicker.Value ~= 'None');
+            end;
+        end;
+
+        if Info.AutoHideBox then
+            PickOuter.Visible = (KeyPicker.Value ~= 'None');
+        end;
 
         local ModeSelectOuter = Library:Create('Frame', {
             BorderColor3 = Color3.new(0, 0, 0);
@@ -1148,6 +1159,8 @@ do
         end;
 
         function KeyPicker:Update()
+            RefreshBoxVisibility();
+
             if Info.NoUI then
                 return;
             end;
@@ -1227,64 +1240,95 @@ do
             Library:SafeCallback(KeyPicker.Clicked, KeyPicker.Toggled)
         end
 
-        local Picking = false;
+        function KeyPicker:PromptKey()
+            if KeyPicker.Picking then
+                return;
+            end;
+
+            KeyPicker.Picking = true;
+            RefreshBoxVisibility();
+
+            DisplayLabel.Text = '';
+
+            local Text = '';
+
+            task.spawn(function()
+                while KeyPicker.Picking do
+                    if Text == '...' then
+                        Text = '';
+                    end;
+
+                    Text = Text .. '.';
+                    DisplayLabel.Text = Text;
+
+                    wait(0.4);
+                end;
+            end);
+
+            wait(0.2);
+
+            if (not KeyPicker.Picking) then
+                return;
+            end;
+
+            KeyPicker.PickEvent = InputService.InputBegan:Connect(function(Input)
+                local Key;
+
+                if Input.UserInputType == Enum.UserInputType.Keyboard then
+                    Key = Input.KeyCode.Name;
+                elseif Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    Key = 'MB1';
+                elseif Input.UserInputType == Enum.UserInputType.MouseButton2 then
+                    Key = 'MB2';
+                else
+                    return;
+                end;
+
+                KeyPicker.Picking = false;
+
+                DisplayLabel.Text = Key;
+                KeyPicker.Value = Key;
+
+                Library:SafeCallback(KeyPicker.ChangedCallback, Input.KeyCode or Input.UserInputType)
+                Library:SafeCallback(KeyPicker.Changed, Input.KeyCode or Input.UserInputType)
+
+                Library:AttemptSave();
+
+                if KeyPicker.PickEvent then
+                    KeyPicker.PickEvent:Disconnect();
+                    KeyPicker.PickEvent = nil;
+                end;
+
+                RefreshBoxVisibility();
+            end);
+        end;
+
+        function KeyPicker:CancelPicking()
+            if (not KeyPicker.Picking) then
+                return;
+            end;
+
+            KeyPicker.Picking = false;
+
+            if KeyPicker.PickEvent then
+                KeyPicker.PickEvent:Disconnect();
+                KeyPicker.PickEvent = nil;
+            end;
+
+            DisplayLabel.Text = KeyPicker.Value;
+            RefreshBoxVisibility();
+        end;
 
         PickOuter.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1 and not Library:MouseIsOverOpenedFrame() then
-                Picking = true;
-
-                DisplayLabel.Text = '';
-
-                local Break;
-                local Text = '';
-
-                task.spawn(function()
-                    while (not Break) do
-                        if Text == '...' then
-                            Text = '';
-                        end;
-
-                        Text = Text .. '.';
-                        DisplayLabel.Text = Text;
-
-                        wait(0.4);
-                    end;
-                end);
-
-                wait(0.2);
-
-                local Event;
-                Event = InputService.InputBegan:Connect(function(Input)
-                    local Key;
-
-                    if Input.UserInputType == Enum.UserInputType.Keyboard then
-                        Key = Input.KeyCode.Name;
-                    elseif Input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        Key = 'MB1';
-                    elseif Input.UserInputType == Enum.UserInputType.MouseButton2 then
-                        Key = 'MB2';
-                    end;
-
-                    Break = true;
-                    Picking = false;
-
-                    DisplayLabel.Text = Key;
-                    KeyPicker.Value = Key;
-
-                    Library:SafeCallback(KeyPicker.ChangedCallback, Input.KeyCode or Input.UserInputType)
-                    Library:SafeCallback(KeyPicker.Changed, Input.KeyCode or Input.UserInputType)
-
-                    Library:AttemptSave();
-
-                    Event:Disconnect();
-                end);
+                KeyPicker:PromptKey();
             elseif Input.UserInputType == Enum.UserInputType.MouseButton2 and not Library:MouseIsOverOpenedFrame() then
                 ModeSelectOuter.Visible = true;
             end;
         end);
 
         Library:GiveSignal(InputService.InputBegan:Connect(function(Input)
-            if (not Picking) then
+            if (not KeyPicker.Picking) then
                 if KeyPicker.Mode == 'Toggle' then
                     local Key = KeyPicker.Value;
 
@@ -1317,7 +1361,7 @@ do
         end))
 
         Library:GiveSignal(InputService.InputEnded:Connect(function(Input)
-            if (not Picking) then
+            if (not KeyPicker.Picking) then
                 KeyPicker:Update();
             end;
         end))
@@ -1926,10 +1970,28 @@ do
             Library:UpdateDependencyBoxes();
         end;
 
+        function Toggle:GetKeyPicker()
+            for _, Addon in next, Toggle.Addons do
+                if Addon.Type == 'KeyPicker' then
+                    return Addon;
+                end;
+            end;
+        end;
+
         ToggleRegion.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1 and not Library:MouseIsOverOpenedFrame() then
                 Toggle:SetValue(not Toggle.Value) -- Why was it not like this from the start?
                 Library:AttemptSave();
+            elseif Input.UserInputType == Enum.UserInputType.MouseButton2 and not Library:MouseIsOverOpenedFrame() then
+                local KeyPicker = Toggle:GetKeyPicker();
+
+                if KeyPicker then
+                    if KeyPicker.Picking then
+                        KeyPicker:CancelPicking();
+                    else
+                        KeyPicker:PromptKey();
+                    end;
+                end;
             end;
         end);
 
@@ -1946,6 +2008,22 @@ do
         Toggle.TextLabel = ToggleLabel;
         Toggle.Container = Container;
         setmetatable(Toggle, BaseAddons);
+
+        if (not Info.NoKeybind) then
+            Toggle:AddKeyPicker(Idx .. 'Key', {
+                Default = Info.KeybindDefault or 'None';
+                Mode = Info.KeybindMode or 'Toggle';
+                Modes = Info.KeybindModes;
+                SyncToggleState = true;
+                Text = Info.Text;
+                NoUI = Info.KeybindNoUI;
+                AutoHideBox = (not Info.ShowKeybindBox);
+                Callback = Info.KeybindCallback;
+                ChangedCallback = Info.KeybindChangedCallback;
+            });
+
+            KeyInputs[Idx] = Options[Idx .. 'Key'];
+        end;
 
         Toggles[Idx] = Toggle;
 
@@ -1966,26 +2044,22 @@ do
             Risky = Info.Risky;
             BlankSize = Info.BlankSize;
             Callback = Info.Callback;
+
+            KeybindDefault = Info.DefaultKey;
+            KeybindMode = Info.Mode;
+            KeybindModes = Info.Modes;
+            KeybindNoUI = Info.NoUI;
+            KeybindCallback = Info.KeyCallback;
+            KeybindChangedCallback = Info.ChangedCallback;
+            ShowKeybindBox = true;
         });
-
-        local KeyIdx = Idx .. 'Key';
-
-        Toggle:AddKeyPicker(KeyIdx, {
-            Default = Info.DefaultKey or 'None';
-            Mode = Info.Mode or 'Toggle';
-            Modes = Info.Modes;
-            SyncToggleState = true;
-            Text = Info.Text;
-            NoUI = Info.NoUI;
-            Callback = Info.KeyCallback;
-            ChangedCallback = Info.ChangedCallback;
-        });
-
-        local KeyPicker = Options[KeyIdx];
-        KeyInputs[Idx] = KeyPicker;
 
         function Toggle:OnKeyChanged(Func)
-            KeyPicker:OnChanged(Func);
+            local KeyPicker = Toggle:GetKeyPicker();
+
+            if KeyPicker then
+                KeyPicker:OnChanged(Func);
+            end;
         end;
 
         return Toggle;
