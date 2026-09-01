@@ -79,6 +79,11 @@ local SaveManager = {} do
 	end
 
 	function SaveManager:Save(name)
+		-- Fall back to whatever config was most recently saved/loaded so that
+		-- Library:AttemptSave() (called on every toggle/slider/keybind change)
+		-- has somewhere to write to without the player pressing "Overwrite config".
+		name = name or self.LastConfig
+
 		if (not name) then
 			return false, 'no config file is selected'
 		end
@@ -108,6 +113,9 @@ local SaveManager = {} do
 		end
 
 		writefile(fullPath, encoded)
+
+		self.LastConfig = name
+
 		return true
 	end
 
@@ -127,6 +135,8 @@ local SaveManager = {} do
 				task.spawn(function() self.Parser[option.type].Load(option.idx, option) end) -- task.spawn() so the config loading wont get stuck.
 			end
 		end
+
+		self.LastConfig = name
 
 		return true
 	end
@@ -182,6 +192,13 @@ local SaveManager = {} do
 
 	function SaveManager:SetLibrary(library)
 		self.Library = library
+
+		-- Library:AttemptSave() only fires if it knows a SaveManager exists.
+		-- Without this link, every autosave call (toggles, sliders, keybinds, etc.)
+		-- was silently a no-op.
+		library.SaveManager = self
+
+		self:SetupKeybindMenuPersistence()
 	end
 
 	function SaveManager:LoadAutoloadConfig()
@@ -195,6 +212,77 @@ local SaveManager = {} do
 
 			self.Library:Notify(string.format('Auto loaded config %q', name))
 		end
+	end
+
+	-- < Keybinds menu position persistence >
+
+	function SaveManager:SaveKeybindMenuPosition()
+		if not (self.Library and self.Library.KeybindFrame) then
+			return
+		end
+
+		local pos = self.Library.KeybindFrame.Position
+
+		local data = {
+			XScale = pos.X.Scale;
+			XOffset = pos.X.Offset;
+			YScale = pos.Y.Scale;
+			YOffset = pos.Y.Offset;
+		}
+
+		local success, encoded = pcall(httpService.JSONEncode, httpService, data)
+		if not success then
+			return
+		end
+
+		writefile(self.Folder .. '/keybind_menu_position.json', encoded)
+	end
+
+	function SaveManager:LoadKeybindMenuPosition()
+		if not (self.Library and self.Library.KeybindFrame) then
+			return
+		end
+
+		local path = self.Folder .. '/keybind_menu_position.json'
+		if not isfile(path) then
+			return
+		end
+
+		local success, decoded = pcall(httpService.JSONDecode, httpService, readfile(path))
+		if not success then
+			return
+		end
+
+		self.Library.KeybindFrame.Position = UDim2.new(decoded.XScale, decoded.XOffset, decoded.YScale, decoded.YOffset)
+	end
+
+	function SaveManager:SetupKeybindMenuPersistence()
+		if self.KeybindMenuPersistenceReady then
+			return
+		end
+
+		if not (self.Library and self.Library.KeybindFrame) then
+			return
+		end
+
+		self.KeybindMenuPersistenceReady = true
+
+		self:LoadKeybindMenuPosition()
+
+		local dirty = false
+
+		self.Library.KeybindFrame:GetPropertyChangedSignal('Position'):Connect(function()
+			dirty = true
+		end)
+
+		task.spawn(function()
+			while task.wait(1) do
+				if dirty then
+					dirty = false
+					self:SaveKeybindMenuPosition()
+				end
+			end
+		end)
 	end
 
 
@@ -266,6 +354,8 @@ local SaveManager = {} do
 		end
 
 		SaveManager:SetIgnoreIndexes({ 'SaveManager_ConfigList', 'SaveManager_ConfigName' })
+
+		self:SetupKeybindMenuPersistence()
 	end
 
 	SaveManager:BuildFolderTree()
