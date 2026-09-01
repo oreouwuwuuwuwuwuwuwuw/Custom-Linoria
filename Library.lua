@@ -19,9 +19,11 @@ ScreenGui.Parent = CoreGui;
 
 local Toggles = {};
 local Options = {};
+local KeyInputs = {};
 
 getgenv().Toggles = Toggles;
 getgenv().Options = Options;
+getgenv().KeyInputs = KeyInputs;
 
 local Library = {
     Registry = {};
@@ -1948,6 +1950,43 @@ do
         Toggles[Idx] = Toggle;
 
         Library:UpdateDependencyBoxes();
+
+        return Toggle;
+    end;
+
+    function Funcs:AddKeyInput(Idx, Info)
+        assert(Info.Text, 'AddKeyInput: Missing `Text` string.');
+
+        local Groupbox = self;
+
+        local Toggle = Groupbox:AddToggle(Idx, {
+            Text = Info.Text;
+            Default = Info.Default or false;
+            Tooltip = Info.Tooltip;
+            Risky = Info.Risky;
+            BlankSize = Info.BlankSize;
+            Callback = Info.Callback;
+        });
+
+        local KeyIdx = Idx .. 'Key';
+
+        Toggle:AddKeyPicker(KeyIdx, {
+            Default = Info.DefaultKey or 'None';
+            Mode = Info.Mode or 'Toggle';
+            Modes = Info.Modes;
+            SyncToggleState = true;
+            Text = Info.Text;
+            NoUI = Info.NoUI;
+            Callback = Info.KeyCallback;
+            ChangedCallback = Info.ChangedCallback;
+        });
+
+        local KeyPicker = Options[KeyIdx];
+        KeyInputs[Idx] = KeyPicker;
+
+        function Toggle:OnKeyChanged(Func)
+            KeyPicker:OnChanged(Func);
+        end;
 
         return Toggle;
     end;
