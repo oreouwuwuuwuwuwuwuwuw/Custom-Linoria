@@ -1162,14 +1162,17 @@ do
             RefreshBoxVisibility();
 
             if Info.NoUI then
+                ContainerLabel.Visible = false;
+                Library:RefreshKeybindMenuVisibility();
                 return;
             end;
 
             local State = KeyPicker:GetState();
+            local HasKey = KeyPicker.Value ~= 'None';
 
             ContainerLabel.Text = string.format('[%s] %s (%s)', KeyPicker.Value, Info.Text, KeyPicker.Mode);
 
-            ContainerLabel.Visible = true;
+            ContainerLabel.Visible = HasKey;
             ContainerLabel.TextColor3 = State and Library.AccentColor or Library.FontColor;
 
             Library.RegistryMap[ContainerLabel].Properties.TextColor3 = State and 'AccentColor' or 'FontColor';
@@ -1187,6 +1190,8 @@ do
             end;
 
             Library.KeybindFrame.Size = UDim2.new(0, math.max(XSize + 10, 210), 0, YSize + 23)
+
+            Library:RefreshKeybindMenuVisibility();
         end;
 
         function KeyPicker:GetState()
@@ -1317,6 +1322,23 @@ do
 
             DisplayLabel.Text = KeyPicker.Value;
             RefreshBoxVisibility();
+        end;
+
+        function KeyPicker:ResetKey()
+            if KeyPicker.Picking then
+                KeyPicker:CancelPicking();
+            end;
+
+            KeyPicker.Value = 'None';
+            KeyPicker.Toggled = false;
+            DisplayLabel.Text = 'None';
+
+            Library:SafeCallback(KeyPicker.ChangedCallback, nil);
+            Library:SafeCallback(KeyPicker.Changed, KeyPicker.Value);
+
+            Library:AttemptSave();
+
+            KeyPicker:Update();
         end;
 
         PickOuter.InputBegan:Connect(function(Input)
@@ -1986,7 +2008,14 @@ do
                 local KeyPicker = Toggle:GetKeyPicker();
 
                 if KeyPicker then
-                    if KeyPicker.Picking then
+                    local Now = os.clock();
+                    local IsDoubleClick = KeyPicker.LastRightClick and (Now - KeyPicker.LastRightClick) <= 0.4;
+
+                    KeyPicker.LastRightClick = IsDoubleClick and nil or Now;
+
+                    if IsDoubleClick then
+                        KeyPicker:ResetKey();
+                    elseif KeyPicker.Picking then
                         KeyPicker:CancelPicking();
                     else
                         KeyPicker:PromptKey();
@@ -2952,6 +2981,19 @@ function Library:SetWatermark(Text)
     Library:SetWatermarkVisibility(true)
 
     Library.WatermarkText.Text = Text;
+end;
+
+function Library:RefreshKeybindMenuVisibility()
+    local HasActive = false;
+
+    for _, Child in next, Library.KeybindContainer:GetChildren() do
+        if Child:IsA('TextLabel') and Child.Visible then
+            HasActive = true;
+            break;
+        end;
+    end;
+
+    Library.KeybindFrame.Visible = HasActive;
 end;
 
 function Library:Notify(Text, Time)
